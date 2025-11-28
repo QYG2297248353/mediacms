@@ -2,7 +2,7 @@
 
 ## Table of contents
 - [1. Welcome](#1-welcome)
-- [2. Server Installaton](#2-server-installation)
+- [2. Single Server Installaton](#2-single-server-installation)
 - [3. Docker Installation](#3-docker-installation)
 - [4. Docker Deployment options](#4-docker-deployment-options)
 - [5. Configuration](#5-configuration)
@@ -21,19 +21,27 @@
 - [18. Disable encoding and show only original file](#18-disable-encoding-and-show-only-original-file)
 - [19. Rounded corners on videos](#19-rounded-corners)
 - [20. Translations](#20-translations)
-- [21. How to change the video frames on videos](#21-fames)
+- [21. How to change the video frames on videos](#21-how-to-change-the-video-frames-on-videos)
+- [22. Role-Based Access Control](#22-role-based-access-control)
+- [23. SAML setup](#23-saml-setup)
+- [24. Identity Providers setup](#24-identity-providers-setup)
+- [25. Custom urls](#25-custom-urls)
+- [26. Allowed files](#26-allowed-files)
+- [27. User upload limits](#27-user-upload-limits)
+- [28. Whisper Transcribe for Automatic Subtitles](#28-whisper-transcribe-for-automatic-subtitles)
+
 
 ## 1. Welcome
 This page is created for MediaCMS administrators that are responsible for setting up the software, maintaining it and making modifications.
 
-## 2. Server Installation
+## 2. Single Server Installation
 
-The core dependencies are Python3, Django3, Celery, PostgreSQL, Redis, ffmpeg. Any system that can have these dependencies installed, can run MediaCMS. But we strongly suggest installing on Linux Ubuntu (tested on versions 20, 22).
+The core dependencies are python3, Django, celery, PostgreSQL, redis, ffmpeg. Any system that can have these dependencies installed, can run MediaCMS. But the install.sh is only tested in Linux Ubuntu 24 and 22 versions.
 
-Installation on an Ubuntu system with git utility installed should be completed in a few minutes with the following steps.
+Installation on an Ubuntu 22/24 system with git utility installed should be completed in a few minutes with the following steps.
 Make sure you run it as user root, on a clear system, since the automatic script will install and configure the following services: Celery/PostgreSQL/Redis/Nginx and will override any existing settings.
 
-Automated script - tested on Ubuntu 20, Ubuntu 22 and Debian Buster
+
 
 ```bash
 mkdir /home/mediacms.io && cd /home/mediacms.io/
@@ -84,13 +92,11 @@ Database can be backed up with pg_dump and media_files on /home/mediacms.io/medi
 ## Installation
 Install a recent version of [Docker](https://docs.docker.com/get-docker/), and [Docker Compose](https://docs.docker.com/compose/install/).
 
-For Ubuntu 20/22 systems this is:
+For Ubuntu systems this is:
 
 ```bash
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
-sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
 ```
 
 Then run as root
@@ -106,7 +112,7 @@ If you want to explore more options (including setup of https with letsencrypt c
 Run
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 This will download all MediaCMS related Docker images and start all containers. Once it finishes, MediaCMS will be installed and available on http://localhost or http://ip
@@ -119,6 +125,12 @@ migrations_1     | Created admin user with password: gwg1clfkwf
 
 or if you have set the ADMIN_PASSWORD variable on docker-compose file you have used (example `docker-compose.yaml`), that variable will be set as the admin user's password
 
+`Note`: if you want to use the automatic transcriptions, you have to do one of the following:
+* either use the docker-compose.full.yaml, so in this case run `docker-compose -f docker-compose.yaml -f docker-compose.full.yaml up`
+* or edit the docker-compose.yaml file and set the image for the celery_worker service as mediacms/mediacms:full instead of mediacms/mediacms:latest
+
+Plus set variable `USE_WHISPER_TRANSCRIBE = True` in the settings.py file
+
 ### Update
 
 Get latest MediaCMS image and stop/start containers
@@ -126,8 +138,8 @@ Get latest MediaCMS image and stop/start containers
 ```bash
 cd /path/to/mediacms/installation
 docker pull mediacms/mediacms
-docker-compose down
-docker-compose up
+docker compose down
+docker compose up
 ```
 
 ### Update from version 2 to version 3
@@ -165,9 +177,7 @@ By default, all these services are enabled, but in order to create a scaleable d
 
 Also see the `Dockerfile` for other environment variables which you may wish to override. Application settings, eg. `FRONTEND_HOST` can also be overridden by updating the `deploy/docker/local_settings.py` file.
 
-See example deployments in the sections below. These example deployments have been tested on `docker-compose version 1.27.4` running on `Docker version 19.03.13`
-
-To run, update the configs above if necessary, build the image by running `docker-compose build`, then run `docker-compose run`
+To run, update the configs above if necessary, build the image by running `docker compose build`, then run `docker compose run`
 
 ### Simple Deployment, accessed as http://localhost
 
@@ -184,7 +194,7 @@ Edit this file and set `VIRTUAL_HOST` as my_domain.com, `LETSENCRYPT_HOST` as my
 
 Edit `deploy/docker/local_settings.py` and set https://my_domain.com as `FRONTEND_HOST`
 
-Now run docker-compose -f docker-compose-letsencrypt.yaml up, when installation finishes you will be able to access https://my_domain.com using a valid Letsencrypt certificate!
+Now run `docker compose -f docker-compose-letsencrypt.yaml up`, when installation finishes you will be able to access https://my_domain.com using a valid Letsencrypt certificate!
 
 ### Advanced Deployment, accessed as http://localhost:8000
 
@@ -225,12 +235,17 @@ Single server installation: edit `cms/local_settings.py`, make a change and rest
 Docker Compose installation: edit `deploy/docker/local_settings.py`, make a change and restart MediaCMS containers
 
 ```bash
-#docker-compose restart web celery_worker celery_beat
+#docker compose restart web celery_worker celery_beat
 ```
 
 ### 5.1 Change portal logo
 
-Set a new svg file for the white theme (`static/images/logo_dark.svg`) or the dark theme (`static/images/logo_light.svg`)
+Find the default svg files for the white theme on `static/images/logo_dark.svg` and for the dark theme on `static/images/logo_light.svg`
+You can specify new svg paths to override by editing the `PORTAL_LOGO_DARK_SVG` and `PORTAL_LOGO_LIGHT_SVG` variables in `settings.py`.
+
+You can also use custom pngs, by setting the variables `PORTAL_LOGO_DARK_PNG` and `PORTAL_LOGO_LIGHT_PNG` in `settings.py`. The svg files have priority over png files, so if both are set, svg files will be used.
+
+In any case, make sure the files are placed on the static/images folder.
 
 ### 5.2 Set global portal title
 
@@ -498,6 +513,68 @@ By default `CAN_COMMENT = "all"` means that all registered users can add comment
 - **email_verified**, a user not only has to register an account but also verify the email (by clicking the link sent upon registration). Apparently email configuration need to work, otherise users won't receive emails.
 
 - **advancedUser**, only users that are marked as advanced users can add comment. Admins or MediaCMS managers can make users advanced users by editing their profile and selecting advancedUser.
+
+### 5.26 Control whether anonymous users can list all users
+
+By default, anonymous users can view the list of all users on the platform. To restrict this to authenticated users only, set:
+
+```
+ALLOW_ANONYMOUS_USER_LISTING = False
+```
+
+When set to False, only logged-in users will be able to access the user listing API endpoint.
+
+
+### 5.27 Control who can see the members page
+
+By default `CAN_SEE_MEMBERS_PAGE = "all"` means that all registered users can see the members page. Other valid options are:
+
+- **editors**, only MediaCMS editors can view the page
+- **admins**, only MediaCMS admins can view the page
+
+
+### 5.28 Configure user search fields
+
+By default, when searching for users (e.g., in bulk actions modals or the users API), the search is performed on the user's name and username. You can configure this behavior using the `USER_SEARCH_FIELD` setting:
+
+```
+USER_SEARCH_FIELD = "name_username"  # Default - searches in name and username
+```
+
+To also include email addresses in the search and display them in the user interface:
+
+```
+USER_SEARCH_FIELD = "name_username_email"  # Searches in name, username, and email
+```
+
+When set to `"name_username_email"`:
+- The user search will also match email addresses
+- The email field will be returned in the API response
+- Frontend components will display users as "Name - Email" instead of "Name - Username"
+
+This setting is useful when you want to make it easier to find users by their email addresses, particularly in administrative interfaces like bulk action modals.
+
+
+### 5.29 Require user approval on registration
+
+By default, users do not require approval, so they can login immediately after registration (if registration is open). However, if the parameter `USERS_NEEDS_TO_BE_APPROVED` is set to `True`, they will first have to have their accounts approved by an administrator before they can successfully sign in.
+Administrators can approve users through the following ways: 1. through Django administration, 2. through the users management page, 3. through editing the profile page directly. In all cases, set 'Is approved' to True.
+
+### 5.30 Show or hide media count numbers on categories and tags pages
+
+By default, the number of media items is displayed next to each category and tag on the `/categories` and `/tags` pages. To hide these numbers:
+
+```
+INCLUDE_LISTING_NUMBERS = False
+```
+
+To show the numbers (default behavior):
+
+```
+INCLUDE_LISTING_NUMBERS = True
+```
+
+This setting affects only the visual display on the categories and tags listing pages and does not impact the functionality of filtering by categories or tags.
 
 
 ## 6. Manage pages
@@ -804,14 +881,8 @@ This will disable the transcoding process and only the original file will be sho
 
 ## 19. Rounded corners on videos
 
-By default the video player and media items are now having rounded corners, on larger screens (not in mobile). If you don't like this change, remove the `border-radius` added on the following files:
+By default the video player and media items are now having rounded corners, on larger screens (not in mobile). If you don't like this change, set `USE_ROUNDED_CORNERS = False` in `local_settings.py`.
 
-```
-frontend/src/static/css/_extra.css
-frontend/src/static/js/components/list-item/Item.scss
-frontend/src/static/js/components/media-page/MediaPage.scss
-```
-you now have to re-run the frontend build in order to see the changes (check docs/dev_exp.md)
 
 
 ## 20. Translations
@@ -861,3 +932,147 @@ By default while watching a video you can hover and see the small images named s
 
 After that, newly uploaded videos will have sprites generated with the new number of seconds.
 
+
+
+## 22. Role-Based Access Control
+
+By default there are 3 statuses for any Media that lives on the system, public, unlisted, private. When RBAC support is added, a user that is part of a group has access to media that are published to one or more categories that the group is associated with. The workflow is this:
+
+
+1. A Group is created
+2. A Category is associated with the Group
+3. A User is added to the Group
+
+Now user can view the Media even if it is in private state. User also sees all media in Category page
+
+When user is added to group, they can be set as Member, Contributor, Manager.
+
+- Member: user can view media that are published on one or more categories that this group is associated with
+- Contributor: besides viewing, user can also edit the Media in a category associated with this Group. They can also publish Media to this category
+- Manager: same as Contributor for now
+
+Use cases facilitated with RBAC:
+- viewing a Media in private state: if RBAC is enabled, if user is Member on a Group that is associated with a Category, and the media is published to this Category, then user can view the media
+- editing a Media: if RBAC is enabled, and user is Contributor to one or more Categories, they can publish media to these Categories as long as they are associated with one Group
+- viewing all media of a category: if RBAC is enabled, and user visits a Category, they are able to see the listing of all media that are published in this category, independent of their state, provided that the category is associated with a group that the user is member of
+- viewing all categories associated with groups the user is member of: if RBAC is enabled, and user visits the listing of categories, they can view all categories that are associated with a group the user is member
+
+How to enable RBAC support:
+
+```
+USE_RBAC = True
+```
+
+on `local_settings.py` and restart the instance.
+
+
+## 23. SAML setup
+SAML authentication is supported along with the option to utilize the SAML response and do useful things as setting up the user role in MediaCMS or participation in groups.
+
+To enable SAML support, edit local_settings.py and set the following options:
+
+```
+USE_RBAC = True
+USE_SAML = True
+USE_IDENTITY_PROVIDERS = True
+
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
+SOCIALACCOUNT_ADAPTER = 'saml_auth.adapter.SAMLAccountAdapter'
+SOCIALACCOUNT_PROVIDERS = {
+    "saml": {
+        "provider_class": "saml_auth.custom.provider.CustomSAMLProvider",
+    }
+}
+```
+
+
+To set a SAML provider:
+
+- Step 1: Add SAML Identity Provider
+1. Navigate to Admin panel
+2. Select "Identity Provider"
+3. Configure as follows:
+   - **Provider**: saml
+   - **Provider ID**: an ID for the provider
+   - **IDP Config Name**: a name for the provider
+   - **Client ID**: the identifier that is part of the login, and that is shared with the IDP.
+   - **Site**: Set the default one
+
+- Step 2: Add SAML Configuration
+Select the SAML Configurations tab, create a new one and set:
+
+1. **IDP ID**: Must be a URL
+2. **IDP Certificate**: x509cert from your SAML provider
+3. **SSO URL**:
+4. **SLO URL**:
+5. **SP Metadata URL**: The metadata URL that the IDP will utilize. This can be https://{portal}/saml/metadata and is autogenerated by MediaCMS
+
+- Step 3: Set other Options
+1. **Email Settings**:
+   - `verified_email`: When enabled, emails from SAML responses will be marked as verified
+   - `Remove from groups`: When enabled, user is removed from a group after login, if they have been removed from the group on the IDP
+2. **Global Role Mapping**: Maps the role returned by SAML (as set in the SAML Configuration tab) with the role in MediaCMS
+3. **Group Role Mapping**: Maps the role returned by SAML (as set in the SAML Configuration tab) with the role in groups that user will be added
+4. **Group mapping**: This creates groups associated with this IDP. Group ids as they come from SAML, associated with MediaCMS groups
+5. **Category Mapping**: This maps a group id (from SAML response) with a category in MediaCMS
+
+A full SAML deployment with [EntraID guide and troubleshooting steps is available here.](./saml_entraid_setup.md). This guide can be used as reference for other IDPs too.
+
+## 24. Identity Providers setup
+
+A separate Django app identity_providers has been added in order to facilitate a number of configurations related to different identity providers. If this is enabled, it gives the following options:
+
+- allows to add an Identity Provider through Django admin, and set a number of mappings, as Group Mapping, Global Role mapping and more. While SAML is the only provider that can be added out of the box, any identity provider supported by django allauth can be added with minimal effort. If the response of the identity provider contains attributes as role, or groups, then these can be mapped to MediaCMS specific roles (advanced user, editor, manager, admin) and groups (rbac groups)
+- saves SAML response logs after user is authenticated (can be utilized for other providers too)
+- allows to specify a list of login options through the admin (eg system login, identity provider login)
+
+
+to enable the identity providers, set the following setting on `local_settings.py`:
+
+
+```
+USE_IDENTITY_PROVIDERS = True
+```
+
+Visiting the admin, you will see the Identity Providers tab and you can add one.
+
+## 25. Custom urls
+To enable custom urls, set `ALLOW_CUSTOM_MEDIA_URLS = True` on settings.py or local_settings.py
+This will enable editing the URL of the media, while editing a media. If the URL is already taken you get a message you cannot update this.
+
+## 26. Allowed files
+MediaCMS performs identification attempts on new file uploads and only allows certain file types specified in the `ALLOWED_MEDIA_UPLOAD_TYPES` setting. By default, only ["video", "audio", "image", "pdf"] files are allowed.
+
+When a file is not identified as one of these allowed types, the file gets removed from the system and there's an entry indicating that this is not a supported media type.
+
+If you want to change the allowed file types, edit the `ALLOWED_MEDIA_UPLOAD_TYPES` list in your `settings.py` or `local_settings.py` file. If 'all' is specified in this list, no check is performed and all files are allowed.
+
+## 27. User upload limits
+MediaCMS allows you to set a maximum number of media files that each user can upload. This is controlled by the `NUMBER_OF_MEDIA_USER_CAN_UPLOAD` setting in `settings.py` or `local_settings.py`. By default, this is set to 100 media items per user.
+
+When a user reaches this limit, they will no longer be able to upload new media until they delete some of their existing content. This limit applies regardless of the user's role or permissions in the system.
+
+To change the maximum number of uploads allowed per user, modify the `NUMBER_OF_MEDIA_USER_CAN_UPLOAD` value in your settings file:
+
+```
+NUMBER_OF_MEDIA_USER_CAN_UPLOAD = 5
+```
+
+## 28. Whisper Transcribe for Automatic Subtitles
+MediaCMS can integrate with OpenAI's Whisper to automatically generate subtitles for your media files. This feature is useful for making your content more accessible.
+
+### How it works
+When the whisper transcribe task is triggered for a media file, MediaCMS runs the `whisper` command-line tool to process the audio and generate a subtitle file in VTT format. The generated subtitles are then associated with the media and are available under the "automatic" language option.
+
+### Configuration
+
+Transcription functionality is available only for the Docker installation. To enable this feature, you must either use the `docker-compose.full.yaml` file, as it contains an image with the necessary requirements, or you can also set that celery_worker service is usine mediacms:full image instead of mediacms:latest. Then you also have to set the setting: `USE_WHISPER_TRANSCRIBE = True` in your local_settings.py file.
+
+By default, all users have the ability to send a request for a video to be transcribed, as well as transcribed and translated to English. If you wish to change this behavior, you can edit the `settings.py` file and set `USER_CAN_TRANSCRIBE_VIDEO=False`.
+
+The transcription uses the base model of Whisper speech-to-text by default. However, you can change the model by editing the `WHISPER_MODEL` setting in `settings.py`.

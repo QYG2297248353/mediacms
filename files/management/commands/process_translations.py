@@ -18,7 +18,10 @@ class Command(BaseCommand):
         files = os.listdir(translations_dir)
         files = [f for f in files if f.endswith('.py') and f not in ('__init__.py', 'en.py')]
         # Import the original English translations
-        from files.frontend_translations.en import replacement_strings, translation_strings
+        from files.frontend_translations.en import (
+            replacement_strings,
+            translation_strings,
+        )
 
         for file in files:
             file_path = os.path.join(translations_dir, file)
@@ -44,12 +47,12 @@ class Command(BaseCommand):
             with open(file_path, 'w') as f:
                 f.write("translation_strings = {\n")
                 for key, value in translation_strings_wip.items():
-                    f.write(f'    "{key}": "{value}",\n')
+                    f.write(f'    "{key}": "{value}",\n')  # noqa
                 f.write("}\n\n")
 
                 f.write("replacement_strings = {\n")
                 for key, value in replacement_strings_wip.items():
-                    f.write(f'    "{key}": "{value}",\n')
+                    f.write(f'    "{key}": "{value}",\n')  # noqa
                 f.write("}\n")
 
             self.stdout.write(self.style.SUCCESS(f'Processed {file}'))

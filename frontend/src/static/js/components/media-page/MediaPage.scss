@@ -495,9 +495,6 @@
         color: #888;
       }
 
-      .video-js {
-        background: none !important;
-      }
 
       .vjs-big-play-button {
       }
@@ -522,12 +519,142 @@
   display: block;
 
   img {
+    cursor: pointer;
     position: relative;
     display: block;
     max-width: 100%;
     height: auto;
     margin: 0 auto;
   }
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.slideshow-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  max-width: 90%;
+}
+
+
+
+.slideshow-image img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%; /* Ensure image doesn't exceed container width */
+  max-height: 90vh;
+  border-radius: 0;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  transition: transform 60s ease-in-out, opacity 60 ease-in-out;
+}
+
+.slideshow-title {
+  margin-top: 10px;
+  text-align: start;
+  font-size: 16px;
+  font-weight: bold;
+  color: #bdb6b6;
+  z-index: 1200;
+}
+
+
+.arrow {
+  position: absolute;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 40px;
+  height: 40px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  color: white;
+  font-size: 2rem;
+  background-color: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  padding: 10px;
+  border-radius: 50%;
+  z-index: 1000;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+.arrow:hover {
+  background: rgba(92, 78, 78, 0.6);
+  transform: translateY(-50%) scale(1.1);
+}
+
+.arrow.left {
+  left: 10px;
+}
+
+.arrow.right {
+  right: 10px;
+}
+
+.thumbnail-navigation {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 20px;
+  gap: 10px;
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.thumbnail-container {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+  max-width: 80%;
+  padding: 10px 0;
+  scrollbar-width: none; /* Hide scrollbar for Firefox */
+}
+
+.thumbnail-container.center-thumbnails {
+  display: flex;
+  justify-content: center;
+  overflow: visible; /* No scrollbars for fewer thumbnails */
+}
+
+.thumbnail-container::-webkit-scrollbar {
+  display: none; /* Hide scrollbar for Chrome/Safari */
+}
+
+.thumbnail {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.thumbnail.active {
+  border-color: white;
+}
+
+.thumbnail:hover {
+  transform: scale(1.1);
 }
 
 .viewer-container .player-container {
@@ -537,7 +664,6 @@
 }
 
 .viewer-container .player-container.audio-player-container {
-
   @media screen and (min-width: 480px) {
     padding-top: 0.75 * 56.25%;
   }
@@ -550,6 +676,26 @@
     padding-top: 0;
   }
 }
+
+.viewer-container .pdf-container {
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%; // Default width for mobile
+  height: 400px; // Default height for mobile
+
+  @media (min-width: 768px) and (max-width: 1023px) { // Tablets
+    width: 90%;
+    height: 600px;
+  }
+
+  @media (min-width: 1024px) { // Desktop
+    width: 85%;
+    height: 900px;
+  }
+}
+
 
 .viewer-container .player-container.viewer-pdf-container,
 .viewer-container .player-container.viewer-attachment-container {
@@ -582,7 +728,9 @@
 
 .media-author-actions {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-family: inherit;
   margin-bottom: -8px;
 
@@ -592,28 +740,66 @@
     }
   }
 
-  > a,
-  > button {
-    position: relative;
-    width: auto;
-    padding: 8px 16px;
-    margin: 0.5rem 0;
-    font-size: 13px;
-    font-weight: 500;
-    font-weight: 400;
-    font-family: inherit;
-    line-height: 15px;
+  .edit-media-icon,
+  .remove-media-icon {
     text-decoration: none;
     color: #fff;
     border: 0;
-    border-radius: 1px;
+    line-height: 1;
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 
-    display: inline-block;
-    margin-bottom: 8px;
-    margin-right: 0.75rem;
+    .material-icons {
+      font-size: 20px;
+      line-height: 1;
+    }
 
-    &:last-child {
-      margin-right: 0;
+    &:active {
+      transform: scale(0.98);
+    }
+  }
+
+  .edit-media-icon {
+    background-color: rgba(0, 153, 51, 0.9);
+
+    &:hover {
+      background-color: rgba(0, 153, 51, 1);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transform: scale(1.05);
+    }
+
+    .dark_theme & {
+      background-color: rgba(102, 187, 102, 0.9);
+
+      &:hover {
+        background-color: rgba(102, 187, 102, 1);
+      }
+    }
+  }
+
+  .remove-media-icon {
+    background-color: rgba(220, 53, 69, 0.9);
+
+    &:hover {
+      background-color: rgba(220, 53, 69, 1);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      transform: scale(1.05);
+    }
+
+    .dark_theme & {
+      background-color: rgba(255, 107, 107, 0.9);
+
+      &:hover {
+        background-color: rgba(255, 107, 107, 1);
+      }
     }
   }
 
@@ -711,6 +897,7 @@
     display: table;
     width: 100%;
     min-height: 40px;
+    z-index: 999;
 
     > * {
       display: table-cell;
@@ -935,112 +1122,11 @@
               }
             }
 
-            .share-fb {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(59, 89, 152);
-                  background-image: url('../../../images/social-media-icons/fb-logo.png');
-                }
-              }
-            }
-
-            .share-tw {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(29, 161, 242);
-                  background-image: url('../../../images/social-media-icons/twitter-logo.png');
-                }
-              }
-            }
-
-            .share-reddit {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(255, 69, 0);
-                  background-image: url('../../../images/social-media-icons/reddit-logo.png');
-                }
-              }
-            }
-
-            .share-tumblr {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(53, 70, 92);
-                  background-image: url('../../../images/social-media-icons/tumblr-logo.png');
-                }
-              }
-            }
-
-            .share-pinterest {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(189, 8, 28);
-                  background-image: url('../../../images/social-media-icons/pinterest-logo.png');
-                }
-              }
-            }
-
-            .share-vk {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(70, 128, 194);
-                  background-image: url('../../../images/social-media-icons/vk-logo.png');
-                }
-              }
-            }
-
-            .share-linkedin {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(0, 119, 181);
-                  background-image: url('../../../images/social-media-icons/linkedin-logo.png');
-                }
-              }
-            }
-
-            .share-mix {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(255, 130, 38);
-                  background-image: url('../../../images/social-media-icons/mix-logo.png');
-                }
-              }
-            }
-
             .share-email {
               a,
               button {
                 > *:first-child {
                   background-color: rgb(136, 136, 136);
-                }
-              }
-            }
-
-            .share-whatsapp {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(37, 211, 102);
-                  background-image: url('../../../images/social-media-icons/whatsapp-logo.png');
-                }
-              }
-            }
-
-            .share-telegram {
-              a,
-              button {
-                > *:first-child {
-                  background-color: rgb(0, 136, 204);
-                  background-position: 11px;
-                  background-image: url('../../../images/social-media-icons/telegram-logo.png');
                 }
               }
             }

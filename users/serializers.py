@@ -22,7 +22,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        read_only_fields = (
+        read_only_fields = [
             "date_added",
             "is_featured",
             "uid",
@@ -31,8 +31,8 @@ class UserSerializer(serializers.ModelSerializer):
             "is_editor",
             "is_manager",
             "email_is_verified",
-        )
-        fields = (
+        ]
+        fields = [
             "description",
             "date_added",
             "name",
@@ -45,7 +45,15 @@ class UserSerializer(serializers.ModelSerializer):
             "is_editor",
             "is_manager",
             "email_is_verified",
-        )
+        ]
+
+        if settings.USER_SEARCH_FIELD == "name_username_email":
+            fields.append("email")
+            read_only_fields.append("email")
+
+        if settings.USERS_NEEDS_TO_BE_APPROVED:
+            fields.append("is_approved")
+            read_only_fields.append("is_approved")
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
@@ -93,16 +101,16 @@ class LoginSerializer(serializers.Serializer):
         username = data.get('username', None)
         password = data.get('password', None)
 
-        if settings.ACCOUNT_AUTHENTICATION_METHOD == 'username' and not username:
+        if settings.ACCOUNT_LOGIN_METHODS == {"username"} and not username:
             raise serializers.ValidationError('username is required to log in.')
         else:
             username_or_email = username
-        if settings.ACCOUNT_AUTHENTICATION_METHOD == 'email' and not email:
+        if settings.ACCOUNT_LOGIN_METHODS == {"email"} and not email:
             raise serializers.ValidationError('email is required to log in.')
         else:
             username_or_email = email
 
-        if settings.ACCOUNT_AUTHENTICATION_METHOD == 'username_email' and not (username or email):
+        if settings.ACCOUNT_LOGIN_METHODS == {"username", "email"} and not (username or email):
             raise serializers.ValidationError('username or email is required to log in.')
         else:
             username_or_email = username or email

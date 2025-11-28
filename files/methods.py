@@ -3,18 +3,22 @@
 
 import itertools
 import logging
+import os
 import random
 import re
+import subprocess
 from datetime import datetime
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.files import File
 from django.core.mail import EmailMessage
 from django.db.models import Q
+from django.utils import timezone
 
 from cms import celery_app
 
-from . import models
+from . import helpers, models
 from .helpers import mask_ip
 
 logger = logging.getLogger(__name__)
@@ -119,12 +123,16 @@ def get_next_state(user, current_state, next_state):
 
     if next_state not in ["public", "private", "unlisted"]:
         next_state = settings.PORTAL_WORKFLOW  # get default state
+
     if is_mediacms_editor(user):
         # allow any transition
         return next_state
 
     if settings.PORTAL_WORKFLOW == "private":
-        next_state = "private"
+        if next_state in ["private", "unlisted"]:
+            next_state = next_state
+        else:
+            next_state = current_state
 
     if settings.PORTAL_WORKFLOW == "unlisted":
         # don't allow to make media public in this case
@@ -159,14 +167,14 @@ Media becomes private if it gets reported %s times\n
         )
 
         if settings.ADMINS_NOTIFICATIONS.get("MEDIA_REPORTED", False):
-            title = "[{}] - Media was reported".format(settings.PORTAL_NAME)
+            title = f"[{settings.PORTAL_NAME}] - Media was reported"
             d = {}
             d["title"] = title
             d["msg"] = msg
             d["to"] = settings.ADMIN_EMAIL_LIST
             notify_items.append(d)
         if settings.USERS_NOTIFICATIONS.get("MEDIA_REPORTED", False):
-            title = "[{}] - Media was reported".format(settings.PORTAL_NAME)
+            title = f"[{settings.PORTAL_NAME}] - Media was reported"
             d = {}
             d["title"] = title
             d["msg"] = msg
@@ -175,7 +183,7 @@ Media becomes private if it gets reported %s times\n
 
     if action == "media_added" and media:
         if settings.ADMINS_NOTIFICATIONS.get("MEDIA_ADDED", False):
-            title = "[{}] - Media was added".format(settings.PORTAL_NAME)
+            title = f"[{settings.PORTAL_NAME}] - Media was added"
             msg = """
 Media %s was added by user %s.
 """ % (
@@ -188,7 +196,7 @@ Media %s was added by user %s.
             d["to"] = settings.ADMIN_EMAIL_LIST
             notify_items.append(d)
         if settings.USERS_NOTIFICATIONS.get("MEDIA_ADDED", False):
-            title = "[{}] - Your media was added".format(settings.PORTAL_NAME)
+            title = f"[{settings.PORTAL_NAME}] - Your media was added"
             msg = """
 Your media has been added! It will be encoded and will be available soon.
 URL: %s
@@ -258,18 +266,22 @@ def show_related_media_content(media, request, limit):
         "user_featured",
         "-user_featured",
     ]
-    # TODO: MAke this mess more readable, and add TAGS support - aka related
+    # TODO: Make this mess more readable, and add TAGS support - aka related
     # tags rather than random media
     if len(m) < limit:
         category = media.category.first()
         if category:
             q_category = Q(listable=True, category=category)
-            q_res = models.Media.objects.filter(q_category).order_by(order_criteria[random.randint(0, len(order_criteria) - 1)]).prefetch_related("user")[: limit - media.user.media_count]
+            # Fix: Ensure slice index is never negative
+            remaining = max(0, limit - len(m))
+            q_res = models.Media.objects.filter(q_category).order_by(order_criteria[random.randint(0, len(order_criteria) - 1)]).prefetch_related("user")[:remaining]
             m = list(itertools.chain(m, q_res))
 
         if len(m) < limit:
             q_generic = Q(listable=True)
-            q_res = models.Media.objects.filter(q_generic).order_by(order_criteria[random.randint(0, len(order_criteria) - 1)]).prefetch_related("user")[: limit - media.user.media_count]
+            # Fix: Ensure slice index is never negative
+            remaining = max(0, limit - len(m))
+            q_res = models.Media.objects.filter(q_generic).order_by(order_criteria[random.randint(0, len(order_criteria) - 1)]).prefetch_related("user")[:remaining]
             m = list(itertools.chain(m, q_res))
 
     m = list(set(m[:limit]))  # remove duplicates
@@ -332,7 +344,7 @@ def notify_user_on_comment(friendly_token):
     media_url = settings.SSL_FRONTEND_HOST + media.get_absolute_url()
 
     if user.notification_on_comments:
-        title = "[{}] - A comment was added".format(settings.PORTAL_NAME)
+        title = f"[{settings.PORTAL_NAME}] - A comment was added"
         msg = """
 A comment has been added to your media %s .
 View it on %s
@@ -356,7 +368,7 @@ def notify_user_on_mention(friendly_token, user_mentioned, cleaned_comment):
     media_url = settings.SSL_FRONTEND_HOST + media.get_absolute_url()
 
     if user.notification_on_comments:
-        title = "[{}] - You were mentioned in a comment".format(settings.PORTAL_NAME)
+        title = f"[{settings.PORTAL_NAME}] - You were mentioned in a comment"
         msg = """
 You were mentioned in a comment on  %s .
 View it on %s
@@ -392,6 +404,183 @@ def clean_comment(raw_comment):
     cleaned_comment = cleaned_comment.replace("_]", '')
 
     return cleaned_comment
+
+
+def user_allowed_to_upload(request):
+    """Any custom logic for whether a user is allowed
+    to upload content lives here
+    """
+
+    if request.user.is_anonymous:
+        return False
+    if is_mediacms_editor(request.user):
+        return True
+
+    # Check if user has reached the maximum number of uploads
+    if hasattr(settings, 'NUMBER_OF_MEDIA_USER_CAN_UPLOAD'):
+        if models.Media.objects.filter(user=request.user).count() >= settings.NUMBER_OF_MEDIA_USER_CAN_UPLOAD:
+            return False
+
+    if settings.CAN_ADD_MEDIA == "all":
+        return True
+    elif settings.CAN_ADD_MEDIA == "email_verified":
+        if request.user.email_is_verified:
+            return True
+    elif settings.CAN_ADD_MEDIA == "advancedUser":
+        if request.user.advancedUser:
+            return True
+    return False
+
+
+def can_transcribe_video(user):
+    """Checks if a user can transcribe a video."""
+    if not getattr(settings, 'USE_WHISPER_TRANSCRIBE', False):
+        return False
+
+    if is_mediacms_editor(user):
+        return True
+    if getattr(settings, 'USER_CAN_TRANSCRIBE_VIDEO', False):
+        return True
+    return False
+
+
+def kill_ffmpeg_process(filepath):
+    """Kill ffmpeg process that is processing a specific file
+
+    Args:
+        filepath: Path to the file being processed by ffmpeg
+
+    Returns:
+        subprocess.CompletedProcess: Result of the kill command
+    """
+    if not filepath:
+        return False
+    cmd = "ps aux|grep 'ffmpeg'|grep %s|grep -v grep |awk '{print $2}'" % filepath
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+    pid = result.stdout.decode("utf-8").strip()
+    if pid:
+        cmd = "kill -9 %s" % pid
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+    return result
+
+
+def copy_video(original_media, copy_encodings=True, title_suffix="(Trimmed)"):
+    """Create a copy of a media object
+
+    Args:
+        original_media: Original Media object to copy
+        copy_encodings: Whether to copy the encodings too
+
+    Returns:
+        New Media object
+    """
+
+    while True:
+        friendly_token = helpers.produce_friendly_token()
+        if not models.Media.objects.filter(friendly_token=friendly_token).exists():
+            break
+
+    with open(original_media.media_file.path, "rb") as f:
+        myfile = File(f)
+        new_media = models.Media(
+            media_file=myfile,
+            friendly_token=friendly_token,
+            title=f"{original_media.title} {title_suffix}",
+            description=original_media.description,
+            user=original_media.user,
+            media_type=original_media.media_type,
+            enable_comments=original_media.enable_comments,
+            allow_download=original_media.allow_download,
+            state=helpers.get_default_state(user=original_media.user),
+            is_reviewed=original_media.is_reviewed,
+            encoding_status=original_media.encoding_status,
+            add_date=timezone.now(),
+            video_height=original_media.video_height,
+            size=original_media.size,
+            duration=original_media.duration,
+            media_info=original_media.media_info,
+        )
+        models.Media.objects.bulk_create([new_media])
+        # avoids calling signals since signals will call media_init and we don't want that
+
+    if copy_encodings:
+        for encoding in original_media.encodings.filter(chunk=False, status="success"):
+            if encoding.media_file:
+                with open(encoding.media_file.path, "rb") as f:
+                    myfile = File(f)
+                    new_encoding = models.Encoding(
+                        media_file=myfile, media=new_media, profile=encoding.profile, size=encoding.size, status="success", progress=100, chunk=False, logs=f"Copied from encoding {encoding.id}"
+                    )
+                    models.Encoding.objects.bulk_create([new_encoding])
+                    # avoids calling signals as this is still not ready
+
+    # Copy categories and tags
+    for category in original_media.category.all():
+        new_media.category.add(category)
+
+    for tag in original_media.tags.all():
+        new_media.tags.add(tag)
+
+    if original_media.thumbnail:
+        with open(original_media.thumbnail.path, 'rb') as f:
+            thumbnail_name = helpers.get_file_name(original_media.thumbnail.path)
+            new_media.thumbnail.save(thumbnail_name, File(f))
+
+    if original_media.poster:
+        with open(original_media.poster.path, 'rb') as f:
+            poster_name = helpers.get_file_name(original_media.poster.path)
+            new_media.poster.save(poster_name, File(f))
+
+    if original_media.uploaded_thumbnail:
+        with open(original_media.uploaded_thumbnail.path, 'rb') as f:
+            thumbnail_name = helpers.get_file_name(original_media.uploaded_thumbnail.path)
+            new_media.uploaded_thumbnail.save(thumbnail_name, File(f))
+
+    if original_media.uploaded_poster:
+        with open(original_media.uploaded_poster.path, 'rb') as f:
+            poster_name = helpers.get_file_name(original_media.uploaded_poster.path)
+            new_media.uploaded_poster.save(poster_name, File(f))
+
+    if original_media.sprites:
+        with open(original_media.sprites.path, 'rb') as f:
+            sprites_name = helpers.get_file_name(original_media.sprites.path)
+            new_media.sprites.save(sprites_name, File(f))
+
+    if original_media.hls_file and os.path.exists(original_media.hls_file):
+        p = os.path.dirname(original_media.hls_file)
+        if os.path.exists(p):
+            new_hls_file = original_media.hls_file.replace(original_media.uid.hex, new_media.uid.hex)
+            models.Media.objects.filter(id=new_media.id).update(hls_file=new_hls_file)
+            new_p = p.replace(original_media.uid.hex, new_media.uid.hex)
+
+            if not os.path.exists(new_p):
+                os.makedirs(new_p, exist_ok=True)
+            cmd = f"cp -r {p}/* {new_p}/"
+            subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+
+    return new_media
+
+
+def create_video_trim_request(media, data):
+    """Create a video trim request for a media
+
+    Args:
+        media: Media object
+        data: Dictionary with trim request data
+
+    Returns:
+        VideoTrimRequest object
+    """
+
+    video_action = "replace"
+    if data.get('saveIndividualSegments'):
+        video_action = "create_segments"
+    elif data.get('saveAsCopy'):
+        video_action = "save_new"
+
+    video_trim_request = models.VideoTrimRequest.objects.create(media=media, status="initial", video_action=video_action, media_trim_style='no_encoding', timestamps=data.get('segments', {}))
+
+    return video_trim_request
 
 
 def list_tasks():
@@ -444,3 +633,100 @@ def list_tasks():
     ret["task_ids"] = task_ids
     ret["media_profile_pairs"] = media_profile_pairs
     return ret
+
+
+def handle_video_chapters(media, chapters):
+    video_chapter = models.VideoChapterData.objects.filter(media=media).first()
+    if video_chapter:
+        video_chapter.data = chapters
+        video_chapter.save()
+    else:
+        video_chapter = models.VideoChapterData.objects.create(media=media, data=chapters)
+
+    return {'chapters': media.chapter_data}
+
+
+def change_media_owner(media_id, new_user):
+    """Change the owner of a media
+
+    Args:
+        media_id: ID of the media to change owner
+        new_user: New user object to set as owner
+
+    Returns:
+        Media object or None if media not found
+    """
+    media = models.Media.objects.filter(id=media_id).first()
+    if not media:
+        return None
+
+    # Change the owner
+    # previous_user = media.user
+    # keep original user as owner by adding a models.MediaPermission entry with permission=owner
+    # if not models.MediaPermission.objects.filter(media=media, user=previous_user, permission="owner").exists():
+    #    models.MediaPermission.objects.create(media=media, user=previous_user, owner_user=new_user, permission="owner")
+
+    media.user = new_user
+    media.save(update_fields=["user"])
+
+    # Optimize: Update any related permissions in bulk instead of loop
+    models.MediaPermission.objects.filter(media=media).update(owner_user=new_user)
+
+    # remove any existing permissions for the new user, since they are now owner
+    models.MediaPermission.objects.filter(media=media, user=new_user).delete()
+
+    return media
+
+
+def copy_media(media):
+    """Create a copy of a media
+
+    Args:
+        media: Media object to copy
+
+    Returns:
+        None
+    """
+    if media.media_type in ["video", "audio"]:
+        new_media = copy_video(media, title_suffix="(Copy)")
+    else:
+        # check if media.media_file.path exists actually in disk
+        if not os.path.exists(media.media_file.path):
+            return None
+
+        while True:
+            friendly_token = helpers.produce_friendly_token()
+            if not models.Media.objects.filter(friendly_token=friendly_token).exists():
+                break
+
+        with open(media.media_file.path, "rb") as f:
+            myfile = File(f)
+            new_media = models.Media.objects.create(
+                media_file=myfile,
+                friendly_token=friendly_token,
+                title=f"{media.title} (Copy)",
+                description=media.description,
+                user=media.user,
+                media_type=media.media_type,
+                enable_comments=media.enable_comments,
+                allow_download=media.allow_download,
+                state=helpers.get_default_state(user=media.user),
+                is_reviewed=media.is_reviewed,
+                encoding_status=media.encoding_status,
+                add_date=timezone.now(),
+            )
+
+        # Copy categories and tags
+        for category in media.category.all():
+            new_media.category.add(category)
+
+        for tag in media.tags.all():
+            new_media.tags.add(tag)
+
+        return new_media
+
+
+def is_media_allowed_type(media):
+    if "all" in settings.ALLOWED_MEDIA_UPLOAD_TYPES:
+        return True
+    return media.media_type in settings.ALLOWED_MEDIA_UPLOAD_TYPES
